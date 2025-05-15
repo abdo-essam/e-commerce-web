@@ -13,11 +13,12 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
+
 namespace e_commerce_web
 {
     public class Program
     {
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
             builder.Services.AddCors(options =>
@@ -58,56 +59,66 @@ namespace e_commerce_web
                 options.AddPolicy("Admin", policy => policy.RequireRole("Admin"));
                 options.AddPolicy("User", policy => policy.RequireRole("User"));
                 options.AddPolicy("Vendor", policy => policy.RequireRole("Vendor"));
-
-
             });
 
-
-
             builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-      .AddJwtBearer(options =>
-      {
-          options.TokenValidationParameters = new TokenValidationParameters
-          {
-              ValidateLifetime = true,
-              ValidateIssuer = true,
-              ValidateAudience = true,
-              ValidateIssuerSigningKey = true,
-              ValidIssuer = builder.Configuration["Jwt:Issuer"],
-              ValidAudience = builder.Configuration["Jwt:Audience"],
-              IssuerSigningKey = new SymmetricSecurityKey(
-                  Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])),
-              RoleClaimType = ClaimTypes.Role
-          };
+                .AddJwtBearer(options =>
+                {
+                    options.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateLifetime = true,
+                        ValidateIssuer = true,
+                        ValidateAudience = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+                        ValidAudience = builder.Configuration["Jwt:Audience"],
+                        IssuerSigningKey = new SymmetricSecurityKey(
+                            Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])),
+                        RoleClaimType = ClaimTypes.Role
+                    };
 
-          options.Events = new JwtBearerEvents
-          {
-              OnChallenge = context =>
-              {
-                  // Skip the default logic.
-                  context.HandleResponse();
-                  context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                  context.Response.ContentType = "application/json";
-                  return context.Response.WriteAsync("{\"error\": \"Unauthorized\"}");
-              },
-              OnForbidden = context =>
-              {
-                  context.Response.StatusCode = StatusCodes.Status401Unauthorized; // or 403, up to you
-                  context.Response.ContentType = "application/json";
-                  return context.Response.WriteAsync("{\"error\": \"Forbidden - you do not have access\"}");
-              }
-          };
-      });
-
-
+                    options.Events = new JwtBearerEvents
+                    {
+                        OnChallenge = context =>
+                        {
+                            // Skip the default logic.
+                            context.HandleResponse();
+                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                            context.Response.ContentType = "application/json";
+                            return context.Response.WriteAsync("{\"error\": \"Unauthorized\"}");
+                        },
+                        OnForbidden = context =>
+                        {
+                            context.Response.StatusCode = StatusCodes.Status401Unauthorized; // or 403, up to you
+                            context.Response.ContentType = "application/json";
+                            return context.Response.WriteAsync("{\"error\": \"Forbidden - you do not have access\"}");
+                        }
+                    };
+                });
 
             builder.Services.AddScoped<ICategoryRepository, SqlCategoryRepository>();
             builder.Services.AddScoped<IProductRepository, SqlProductRepository>();
             builder.Services.AddScoped<ITokenServices, TokenServices>();
 
-
             var app = builder.Build();
+
+            // Seed the database
+            using (var scope = app.Services.CreateScope())
+            {
+                var services = scope.ServiceProvider;
+                try
+                {
+                    await DbInitializer.Initialize(services);
+                }
+                catch (Exception ex)
+                {
+                    var logger = services.GetRequiredService<ILogger<Program>>();
+                    logger.LogError(ex, "An error occurred while seeding the database.");
+                }
+            }
+
             app.UseCors("AllowAllOrigins");
+
             if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();
@@ -122,10 +133,7 @@ namespace e_commerce_web
 
             app.MapControllers();
 
-  
-
-
-        app.Run();
+            await app.RunAsync();
         }
     }
 }
